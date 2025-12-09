@@ -1,0 +1,1 @@
+Maneja la información almacenada en una estructura de archivos ordenados jerárquicamente

@@ -1,0 +1,1 @@
+Un unico servidor y todos los clientes se conectan a este

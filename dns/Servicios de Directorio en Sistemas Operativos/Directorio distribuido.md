@@ -1,0 +1,1 @@
+La información está ``repartida en varios servidores`` que puede responder a las consultas. Los datos pueden estar ``divididos`` o ``replicados``, o se puede tener también una parte dividida y una parte replicada (es lo más normal)

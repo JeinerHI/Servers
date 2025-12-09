@@ -1,0 +1,1 @@
+Al ser jerárquico, la información va siendo más específica a medida que se profundiza en las redes, de manera que los controles de acceso se pueden hacer más personalizados y específicos

@@ -1,0 +1,1 @@
+Lightweight Directory Access Protocol, aparece como alternativa a `DAP` y se trata de estándares para la omunicación con el servicio.

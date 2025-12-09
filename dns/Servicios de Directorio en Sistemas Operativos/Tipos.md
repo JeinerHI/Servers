@@ -1,0 +1,2 @@
+- [[Directorio centralizado]]
+- [[Directorio distribuido]]
