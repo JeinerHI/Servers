@@ -402,3 +402,223 @@ SELECT * FROM usuarios;
 - **Configuración PostgreSQL:** `/etc/postgresql/*/main/`
 - **Datos PostgreSQL:** `/var/lib/postgresql/*/main/`
 - **Configuración PHP-FPM:** `/etc/php/*/fpm/`
+
+## Guía para Segurizar las Conexiones HTTP con HTTPS
+
+### CONCEPTOS PREVIOS
+
+**¿Qué es HTTPS?**
+
+- HTTP + SSL/TLS = HTTPS
+- Cifra la comunicación entre navegador y servidor
+- Requiere un certificado SSL
+
+**Para desarrollo local tenemos dos opciones:**
+
+1. **Certificados autofirmados** (self-signed) - Gratis, rápido, pero el navegador advertirá que no es confiable
+2. **mkcert** - Crea certificados locales confiables sin advertencias
+### Segurizar con mkcert
+
+#### Paso 1: Instalar dependencias
+
+bash
+
+```bash
+sudo apt update
+sudo apt install libnss3-tools wget -y
+```
+
+#### Paso 2: Descargar e instalar mkcert
+
+bash
+
+```bash
+wget https://github.com/FiloSottile/mkcert/releases/download/v1.4.4/mkcert-v1.4.4-linux-amd64
+```
+
+bash
+
+```bash
+chmod +x mkcert-v1.4.4-linux-amd64
+sudo mv mkcert-v1.4.4-linux-amd64 /usr/local/bin/mkcert
+```
+
+#### Paso 3: Verificar instalación
+
+bash
+
+```bash
+mkcert -version
+```
+
+Deberías ver: `v1.4.4`
+
+#### Paso 4: Instalar la CA local
+
+**Explicación importante:** mkcert crea una Autoridad Certificadora (CA) local en tu sistema. Esto hace que los certificados que generes sean automáticamente confiables.
+
+bash
+
+````bash
+mkcert -install
+```
+
+Deberías ver un mensaje como:
+```
+Created a new local CA
+The local CA is now installed in the system trust store!
+````
+
+---
+
+### Generar Certificados SSL
+
+#### Paso 5: Crear directorio para certificados
+
+bash
+
+```bash
+sudo mkdir -p /etc/ssl/local
+cd /etc/ssl/local
+```
+
+#### Paso 6: Generar certificado para localhost
+
+bash
+
+```bash
+sudo mkcert localhost 127.0.0.1 ::1
+```
+
+**¿Qué hace esto?**
+
+- Crea un certificado válido para `localhost`, `127.0.0.1` e IPv6
+- Genera dos archivos:
+    - `localhost+2.pem` (certificado)
+    - `localhost+2-key.pem` (clave privada)
+
+Verifica que se crearon:
+
+bash
+
+```bash
+ls -l
+```
+
+---
+
+### Configurar HTTPS en Nginx (LEPP)
+
+#### Paso 7: Editar configuración del sitio
+
+bash
+
+```bash
+sudo nano /etc/nginx/sites-available/lepp
+```
+
+**Reemplaza** todo el contenido con esta configuración mejorada:
+
+nginx
+
+```nginx
+# Redirección HTTP a HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name localhost;
+    
+    # Redirigir todo el tráfico HTTP a HTTPS
+    return 301 https://$server_name$request_uri;
+}
+
+# Servidor HTTPS
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    
+    root /var/www/lepp;
+    index index.php index.html;
+    
+    server_name localhost;
+    
+    # Certificados SSL
+    ssl_certificate /etc/ssl/local/localhost+2.pem;
+    ssl_certificate_key /etc/ssl/local/localhost+2-key.pem;
+    
+    # Configuración SSL mejorada
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    
+    # Seguridad adicional
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    
+    location / {
+        try_files $uri $uri/ =404;
+    }
+    
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
+    }
+    
+    location ~ /\.ht {
+        deny all;
+    }
+}
+```
+
+**¿Qué agregamos?**
+
+- **Puerto 443**: Puerto estándar para HTTPS
+- **ssl http2**: Habilita HTTP/2 (más rápido)
+- **ssl_certificate**: Rutas a los certificados
+- **ssl_protocols**: Solo versiones seguras de TLS
+- **Headers de seguridad**:
+    - `Strict-Transport-Security`: Fuerza HTTPS
+    - `X-Frame-Options`: Previene clickjacking
+    - `X-Content-Type-Options`: Previene ataques MIME
+    - `X-XSS-Protection`: Protección contra XSS
+
+Guarda y cierra.
+
+#### Paso 8: Verificar configuración
+
+bash
+
+```bash
+sudo nginx -t
+```
+
+Debe decir `syntax is ok`.
+
+#### Paso 9: Reiniciar Nginx
+
+bash
+
+````bash
+sudo service nginx restart
+```
+
+### Paso 10: Probar HTTPS
+
+Abre tu navegador y ve a:
+```
+https://localhost/info.php
+```
+
+Deberías ver:
+- 🔒 Candado verde en la barra de direcciones
+- Sin advertencias de seguridad
+- Tu página PHP funcionando
+
+Si intentas acceder por HTTP:
+```
+http://localhost/info.php
+````
+
+Debería redirigirte automáticamente a HTTPS.
