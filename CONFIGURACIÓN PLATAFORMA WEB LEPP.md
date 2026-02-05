@@ -24,7 +24,7 @@ http://localhost
 >[!note]
 >Si tengo WAMP iniciado o aunque esté parado, lo he iniciado en algún momento durante la sesión, el "localhost" tratará de redirigirme a wamp, así que lo mejor es o ingresar por http://172.30.76.144/ >> La direccion ip de wsl << o reiniciar mi ordenador.
 
-### Instalar PostgreSQL server
+### Instalar y Configurar PostgreSQL server
 ```bash
 sudo apt install postgresql postgresql-contrib -y
 ```
@@ -64,127 +64,245 @@ Sal con:
 \q
 ```
 
-#### Paso 3: Configurar autenticación para root
+#### Paso 4: Habilitar autenticación por contraseña
 
-Por defecto, MySQL en Ubuntu usa `auth_socket` para root. Vamos a cambiarlo para poder acceder con contraseña:
+Por defecto, PostgreSQL usa autenticación "peer" (solo desde el mismo usuario del sistema). Vamos a permitir conexiones con contraseña.
+
+Edita el archivo de configuración:
+````bash
+sudo nano /etc/postgresql/*/main/pg_hba.conf
+```
+
+**Nota:** El asterisco (*) representa la versión de PostgreSQL instalada (probablemente 14 o 15).
+
+Busca estas líneas cerca del final del archivo:
+```
+# "local" is for Unix domain socket connections only
+local   all             all                                     peer
+```
+
+Cambia `peer` por `md5`:
+```
+local   all             all                                     md5
+```
+
+También busca:
+```
+host    all             all             127.0.0.1/32            scram-sha-256
+```
+
+Cámbialo a:
+```
+host    all             all             127.0.0.1/32            md5
+````
+
+Guarda (Ctrl+O, Enter, Ctrl+X).
+
+#### Paso 5: Reiniciar PostgreSQL
 ```bash
-sudo mysql
+sudo service postgresql restart
 ```
 
-Dentro de MySQL ejecuta:
-```sql
-ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'root123';
-FLUSH PRIVILEGES;
-EXIT;
-```
-
-**¿Por qué hacemos esto?** Para que puedas acceder a MySQL con `mysql -u root -p` usando tu contraseña, que es más cómodo para desarrollo.
-#### Paso 3: Probar acceso
-
+#### Paso 6: Probar acceso
 ```bash
-mysql -u root -p
+psql -U postgres -h localhost
 ```
 
-Ingresa tu contraseña. Si entras al prompt `mysql>`, todo está bien. Sal con `EXIT;`
+Ingresa la contraseña (`postgres123`). Si entras al prompt `postgres=#`, todo está bien.
 
-### Instalación de PHP (la "P" de LAMP)
-
-#### Instalar PHP y módulos necesarios
-```bash
-sudo apt install php libapache2-mod-php php-mysql -y
-```
-
-**¿Qué instalamos?**
-
-- `php`: El intérprete de PHP
-- `libapache2-mod-php`: Módulo para que Apache procese archivos PHP
-- `php-mysql`: Extensión para que PHP se conecte con MySQL
-
-#### Paso 2: Verificar la instalación
-```bash
-php -v
-```
-
-Deberías ver algo como `PHP 8.1.x`
-
-#### Paso 3: Configurar Apache para priorizar PHP
-
-Editamos la configuración de Apache:
-```bash
-sudo nano /etc/apache2/mods-enabled/dir.conf
-```
-
-**Explicación detallada:** Verás una línea que empieza con `DirectoryIndex`. Este parámetro define qué archivo busca Apache por defecto en un directorio. Queremos que `index.php` tenga prioridad sobre `index.html`.
-
-Modifica la línea para que quede así:
-```apache
-DirectoryIndex index.php index.html index.cgi index.pl index.xhtml index.htm
-```
-
-Guarda con `Ctrl+O`, Enter, y sal con `Ctrl+X`.
-
-#### Paso 4: Reiniciar Apache
-```bash
-sudo service apache2 restart
-```
-
-## FASE 6: Probar tu LAMP completo
-
-### Paso 18: Crear un archivo PHP de prueba
+Prueba también con el usuario de desarrollo:
 
 bash
 
 ```bash
-sudo nano /var/www/html/info.php
+psql -U dev_user -h localhost -d postgres
 ```
 
-**Nota sobre permisos:** `/var/www/html/` es el directorio raíz web de Apache. Necesitas `sudo` para escribir aquí.
+Sal con `\q`
 
-Escribe este contenido:
+---
 
-php
+### Instalar y Configurar PHP para trabajar con PostgreSQL
 
-````php
+#### Paso 1: Instalar extensión PHP para PostgreSQL
+```bash
+sudo apt install php-pgsql -y
+```
+
+#### Paso 2: Instalar PHP-FPM para Nginx
+
+**Explicación importante:** Nginx no tiene un módulo PHP integrado como Apache. Usa PHP-FPM (FastCGI Process Manager), que es un procesador PHP independiente.
+```bash
+sudo apt install php-fpm -y
+```
+
+#### Paso 3: Verificar versión de PHP-FPM instalada
+
+bash
+
+```bash
+php -v
+```
+
+Anota la versión (por ejemplo, `8.1`). La necesitarás para la configuración.
+
+#### Paso 4: Iniciar PHP-FPM
+```bash
+sudo service php8.1-fpm start
+```
+
+**Nota:** Cambia `8.1` por tu versión si es diferente.
+
+Verifica que está corriendo:
+```bash
+sudo service php8.1-fpm status
+```
+
+
+### Configurar Nginx para procesar PHP
+
+#### Paso 1: Crear directorio para tu proyecto
+```bash
+sudo mkdir /var/www/lepp
+sudo chown -R $USER:$USER /var/www/lepp
+```
+
+#### Paso 2: Configurar sitio en Nginx
+
+Crea un archivo de configuración:
+```bash
+sudo nano /etc/nginx/sites-available/lepp
+```
+
+**Explicación detallada de la configuración:**
+
+Pega este contenido (ajusta la versión de PHP si es necesaria):
+
+nginx
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    
+    root /var/www/lepp;
+    index index.php index.html;
+    
+    server_name localhost;
+    
+    location / {
+        try_files $uri $uri/ =404;
+    }
+    
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
+    }
+    
+    location ~ /\.ht {
+        deny all;
+    }
+}
+```
+
+**¿Qué hace cada parte?**
+
+- `listen 80`: Escucha en puerto 80
+- `root /var/www/lepp`: Carpeta raíz del sitio
+- `index index.php`: Archivo índice por defecto
+- `location ~ \.php$`: Procesa archivos .php con PHP-FPM
+- `fastcgi_pass`: Socket donde PHP-FPM escucha
+- `location ~ /\.ht`: Bloquea acceso a archivos .htaccess
+
+Guarda y cierra.
+
+#### Paso 3: Habilitar el sitio
+```bash
+sudo ln -s /etc/nginx/sites-available/lepp /etc/nginx/sites-enabled/
+```
+Esta línea de comando **activa** tu sitio web en el servidor Nginx. 
+
+Aquí tienes el detalle técnico:
+
+- **`ln -s`**: Crea un **enlace simbólico** (un acceso directo inteligente).
+- **`/etc/nginx/sites-available/lepp`**: Es el archivo original donde escribiste la configuración de tu sitio.
+- **`/etc/nginx/sites-enabled/`**: Es la carpeta que Nginx "lee" para saber qué sitios debe poner en marcha. 
+
+¿Por qué se hace así?
+
+Es una forma limpia de gestionar servidores: 
+
+1. **Sites-available**: Es como un "almacén" de configuraciones. Puedes tener 10 sitios guardados aquí, pero no todos tienen que estar funcionando.
+2. **Sites-enabled**: Solo contiene enlaces a los sitios que quieres que estén **al aire** en este momento.
+#### Paso 4: Deshabilitar sitio por defecto (opcional)
+
+bash
+
+```bash
+sudo rm /etc/nginx/sites-enabled/default
+```
+
+#### Paso 5: Verificar configuración de Nginx
+```bash
+sudo nginx -t
+```
+
+Debe decir: `syntax is ok` y `test is successful`.
+
+#### Paso 6: Reiniciar Nginx
+```bash
+sudo service nginx restart
+```
+
+### Probar tu LEPP completo
+
+#### Paso 1: Crear archivo PHP de prueba
+```bash
+nano /var/www/lepp/info.php
+```
+Incluye en siguiente contenido
+```php
 <?php
 phpinfo();
 ?>
 ```
+Guarda y cierra.
 
-Guarda y cierra (Ctrl+O, Enter, Ctrl+X).
-
-### Paso 19: Verificar en el navegador
+#### Paso 2: Verificar en navegador
 
 Ve a:
 ```
 http://localhost/info.php
 ````
 
-Deberías ver una página con toda la información de PHP, incluyendo que MySQL está habilitado.
+Deberías ver la página de información de PHP. Busca la sección "pgsql" para confirmar que el módulo PostgreSQL está habilitado.
 
-### Paso 20: Probar conexión PHP-MySQL
-
-Crea otro archivo de prueba:
-
-bash
-
+#### Paso 3: Probar conexión PHP-PostgreSQL
 ```bash
-sudo nano /var/www/html/test-db.php
+nano /var/www/lepp/test-db.php
 ```
 
 Contenido:
-
-php
-
-````php
+```php
 <?php
-$conexion = new mysqli("localhost", "root", "root123", "mysql");
+$host = "localhost";
+$dbname = "postgres";
+$user = "postgres";
+$password = "postgres123";
 
-if ($conexion->connect_error) {
-    die("Error de conexión: " . $conexion->connect_error);
+try {
+    $conexion = new PDO("pgsql:host=$host;dbname=$dbname", $user, $password);
+    $conexion->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    
+    echo "¡Conexión exitosa a PostgreSQL desde PHP!<br>";
+    
+    // Mostrar versión de PostgreSQL
+    $version = $conexion->query('SELECT version()')->fetchColumn();
+    echo "Versión: " . $version;
+    
+} catch(PDOException $e) {
+    echo "Error de conexión: " . $e->getMessage();
 }
-
-echo "¡Conexión exitosa a MySQL desde PHP!";
-$conexion->close();
 ?>
 ```
 
@@ -193,4 +311,94 @@ Accede a:
 http://localhost/test-db.php
 ````
 
-Si ves "¡Conexión exitosa a MySQL desde PHP!" → **¡Enhorabuena, tu LAMP está funcionando!** 🚀
+Si ves "¡Conexión exitosa..." y la versión de PostgreSQL → **¡LEPP funcionando perfectamente!** 🎉
+
+---
+
+## COMANDOS ÚTILES LEPP
+
+### Iniciar todos los servicios:
+
+bash
+
+```bash
+sudo service nginx start
+sudo service postgresql start
+sudo service php8.1-fpm start
+```
+
+### Ver estados:
+
+bash
+
+```bash
+sudo service nginx status
+sudo service postgresql status
+sudo service php8.1-fpm status
+```
+
+### Reiniciar servicios:
+
+bash
+
+```bash
+sudo service nginx restart
+sudo service postgresql restart
+sudo service php8.1-fpm restart
+```
+
+---
+
+## GESTIÓN DE BASES DE DATOS PostgreSQL
+
+### Comandos útiles desde psql:
+
+bash
+
+```bash
+# Conectar
+psql -U postgres -h localhost
+
+# Dentro de psql:
+\l                  # Listar bases de datos
+\c nombre_db        # Conectar a una base de datos
+\dt                 # Listar tablas
+\du                 # Listar usuarios
+\q                  # Salir
+```
+
+### Crear una base de datos de prueba:
+
+bash
+
+```bash
+psql -U postgres -h localhost
+```
+
+sql
+
+```sql
+CREATE DATABASE mi_proyecto;
+\c mi_proyecto
+CREATE TABLE usuarios (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(100),
+    email VARCHAR(100)
+);
+INSERT INTO usuarios (nombre, email) VALUES ('Juan', 'juan@example.com');
+SELECT * FROM usuarios;
+\q
+```
+
+---
+
+## UBICACIONES IMPORTANTES LEPP
+
+- **Archivos web:** `/var/www/lepp/`
+- **Configuración Nginx:** `/etc/nginx/`
+- **Sitios disponibles:** `/etc/nginx/sites-available/`
+- **Sitios habilitados:** `/etc/nginx/sites-enabled/`
+- **Logs Nginx:** `/var/log/nginx/`
+- **Configuración PostgreSQL:** `/etc/postgresql/*/main/`
+- **Datos PostgreSQL:** `/var/lib/postgresql/*/main/`
+- **Configuración PHP-FPM:** `/etc/php/*/fpm/`
