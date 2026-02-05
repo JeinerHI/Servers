@@ -420,23 +420,15 @@ SELECT * FROM usuarios;
 ### Segurizar con mkcert
 
 #### Paso 1: Instalar dependencias
-
-bash
-
 ```bash
 sudo apt update
 sudo apt install libnss3-tools wget -y
 ```
 
 #### Paso 2: Descargar e instalar mkcert
-
-bash
-
 ```bash
 wget https://github.com/FiloSottile/mkcert/releases/download/v1.4.4/mkcert-v1.4.4-linux-amd64
 ```
-
-bash
 
 ```bash
 chmod +x mkcert-v1.4.4-linux-amd64
@@ -444,9 +436,6 @@ sudo mv mkcert-v1.4.4-linux-amd64 /usr/local/bin/mkcert
 ```
 
 #### Paso 3: Verificar instalación
-
-bash
-
 ```bash
 mkcert -version
 ```
@@ -457,9 +446,7 @@ Deberías ver: `v1.4.4`
 
 **Explicación importante:** mkcert crea una Autoridad Certificadora (CA) local en tu sistema. Esto hace que los certificados que generes sean automáticamente confiables.
 
-bash
-
-````bash
+```bash
 mkcert -install
 ```
 
@@ -474,9 +461,6 @@ The local CA is now installed in the system trust store!
 ### Generar Certificados SSL
 
 #### Paso 5: Crear directorio para certificados
-
-bash
-
 ```bash
 sudo mkdir -p /etc/ssl/local
 cd /etc/ssl/local
@@ -511,15 +495,11 @@ ls -l
 
 #### Paso 7: Editar configuración del sitio
 
-bash
-
 ```bash
 sudo nano /etc/nginx/sites-available/lepp
 ```
 
 **Reemplaza** todo el contenido con esta configuración mejorada:
-
-nginx
 
 ```nginx
 # Redirección HTTP a HTTPS
@@ -597,10 +577,7 @@ sudo nginx -t
 Debe decir `syntax is ok`.
 
 #### Paso 9: Reiniciar Nginx
-
-bash
-
-````bash
+```bash
 sudo service nginx restart
 ```
 
